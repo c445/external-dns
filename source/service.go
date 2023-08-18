@@ -392,17 +392,65 @@ func (sc *serviceSource) endpoints(svc *v1.Service) []*endpoint.Endpoint {
 	// Skip endpoints if we do not want entries from annotations
 	if !sc.ignoreHostnameAnnotation {
 		providerSpecific, setIdentifier := getProviderSpecificAnnotations(svc.Annotations)
+
 		var hostnameList []string
 		var internalHostnameList []string
 
 		hostnameList = getHostnamesFromAnnotations(svc.Annotations)
 		for _, hostname := range hostnameList {
-			endpoints = append(endpoints, sc.generateEndpoints(svc, hostname, providerSpecific, setIdentifier, false)...)
+			var domainSetIdentifier string
+			for _, part := range strings.Split(setIdentifier, ",") {
+				v := strings.TrimSpace(part)
+				if strings.HasSuffix(v, fmt.Sprintf("[%s]", hostname)) {
+					domainSetIdentifier = strings.TrimSpace(strings.TrimSuffix(v, fmt.Sprintf("[%s]", hostname)))
+				}
+				if !strings.HasSuffix(v, "]") {
+					// non-scoped annotation. Apply to endpoint
+					domainSetIdentifier = strings.TrimSpace(v)
+				}
+			}
+
+			domainProviderSpecific := endpoint.ProviderSpecific{}
+			for _, p := range providerSpecific {
+				v := strings.TrimSpace(p.Value)
+				for _, part := range strings.Split(v, ",") {
+					v := strings.TrimSpace(part)
+					if strings.HasSuffix(v, fmt.Sprintf("[%s]", hostname)) {
+						domainProviderSpecific = append(domainProviderSpecific, endpoint.ProviderSpecificProperty{
+							Name:  p.Name,
+							Value: strings.TrimSpace(strings.TrimSuffix(v, fmt.Sprintf("[%s]", hostname))),
+						})
+					}
+					if !strings.HasSuffix(v, "]") {
+						// non-scoped annotation. Apply to endpoint
+						domainProviderSpecific = append(domainProviderSpecific, p)
+					}
+				}
+			}
+
+			endpoints = append(endpoints, sc.generateEndpoints(svc, hostname, domainProviderSpecific, domainSetIdentifier, false)...)
 		}
 
 		internalHostnameList = getInternalHostnamesFromAnnotations(svc.Annotations)
 		for _, hostname := range internalHostnameList {
-			endpoints = append(endpoints, sc.generateEndpoints(svc, hostname, providerSpecific, setIdentifier, true)...)
+			domainProviderSpecific := endpoint.ProviderSpecific{}
+			for _, p := range providerSpecific {
+				v := strings.TrimSpace(p.Value)
+				for _, part := range strings.Split(v, ",") {
+					v := strings.TrimSpace(part)
+					if strings.HasSuffix(v, fmt.Sprintf("[%s]", hostname)) {
+						domainProviderSpecific = append(domainProviderSpecific, endpoint.ProviderSpecificProperty{
+							Name:  p.Name,
+							Value: strings.TrimSpace(strings.TrimSuffix(v, fmt.Sprintf("[%s]", hostname))),
+						})
+					}
+					if !strings.HasSuffix(v, "]") {
+						// non-scoped annotation. Apply to endpoint
+						domainProviderSpecific = append(domainProviderSpecific, p)
+					}
+				}
+			}
+			endpoints = append(endpoints, sc.generateEndpoints(svc, hostname, domainProviderSpecific, setIdentifier, true)...)
 		}
 	}
 	return endpoints
